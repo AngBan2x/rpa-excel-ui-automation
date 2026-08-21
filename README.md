@@ -9,8 +9,8 @@ Validar la robustez y resiliencia del flujo de automatización RPA en la interac
 - Entorno virtual configurado mediante **PDM** (`pdm install`).
 - Microsoft Excel instalado en la máquina de prueba.
 - Directorio de datos preparado con la siguiente estructura (gestionada vía `pathlib`):
-  - `data/input/origen.xlsx` (Archivo de prueba base)
-  - `data/output/` (Directorio destino, puede contener o no ejecuciones previas)
+  - `.data/input/origen.xlsx` (Archivo de prueba base)
+  - `.data/output/` (Directorio destino, puede contener o no ejecuciones previas)
 
 ---
 
@@ -51,7 +51,7 @@ Responsable de interactuar exclusivamente con las ventanas de diálogo nativas d
 
    ![Ventana de diálogo del explorador para abrir archivo](img/openfile.png)
 
-4. El control se delega a la clase `FileExplorer` para inyectar correctamente la ruta de origen (`data/input/origen.xlsx`) y ejecutar la acción de abrir.
+4. El control se delega a la clase `FileExplorer` para inyectar correctamente la ruta de origen (`.data/input/origen.xlsx`) y ejecutar la acción de abrir.
 
 **Resultados Esperados:**
 
@@ -72,7 +72,7 @@ Responsable de interactuar exclusivamente con las ventanas de diálogo nativas d
    ![Ventana de diálogo del explorador para exportar archivo](img/saveas.png)
 
 3. Delegar la interacción a `FileExplorer`.
-4. Comprobar que `FileExplorer` inyecte la ruta absoluta destino (`data/output/destino.xlsx`) y haga clic en el botón de guardar.
+4. Comprobar que `FileExplorer` inyecte la ruta absoluta destino (`.data/output/destino.xlsx`) y haga clic en el botón de guardar.
 5. **(Condición de Reemplazo):** Si el sistema operativo arroja una ventana de advertencia indicando que el archivo ya existe, el bot debe confirmar la acción haciendo clic en "Sí" para reemplazarlo.
 
 **Resultados Esperados:**
