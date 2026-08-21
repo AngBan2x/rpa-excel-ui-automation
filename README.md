@@ -56,7 +56,7 @@ Responsable de interactuar exclusivamente con las ventanas de diálogo nativas d
 **Resultados Esperados:**
 
 - **Éxito:** El archivo `origen.xlsx` se abre correctamente, quedando la ventana de Excel activa.
-- **Criterio de Robustez:** El sistema debe incluir tiempos de espera dinámicos (timeouts) para aguardar a que la interfaz cargue antes de interactuar.
+- **Criterio de Robustez:** Prohibido el uso de pausas arbitrarias (`time.sleep()`). El sistema debe emplear sincronización basada en eventos o métodos nativos de espera (ej. `.wait('ready')`, `.exists()`) con timeouts explícitos para aguardar a que la interfaz cargue.
 
 ---
 
@@ -73,12 +73,12 @@ Responsable de interactuar exclusivamente con las ventanas de diálogo nativas d
 
 3. Delegar la interacción a `FileExplorer`.
 4. Comprobar que `FileExplorer` inyecte la ruta absoluta destino (`.data/output/destino.xlsx`) y haga clic en el botón de guardar.
-5. **(Condición de Reemplazo):** Si el sistema operativo arroja una ventana de advertencia indicando que el archivo ya existe, el bot debe confirmar la acción haciendo clic en "Sí" para reemplazarlo.
+5. **(Condición de Reemplazo):** Si el sistema operativo arroja una ventana de advertencia indicando que el archivo ya existe, el bot debe evaluar su presencia dinámicamente mediante el método `.exists()` de la ventana y confirmar la acción haciendo clic en "Sí" para reemplazarlo.
 
 **Resultados Esperados:**
 
 - **Éxito:** Se crea o actualiza el archivo en el directorio `output`, cumpliendo la regla de negocio de no alterar la ruta origen.
-- **Criterio de Robustez:** El bot debe ser capaz de interceptar de manera proactiva la ventana emergente de confirmación de sobreescritura. El proceso debe reemplazar el archivo automáticamente sin interrumpir el flujo (crash) ni requerir intervención humana.
+- **Criterio de Robustez:** El bot debe interceptar de manera proactiva la ventana emergente de confirmación de sobreescritura evaluando su estado de forma nativa. El proceso debe reemplazar el archivo automáticamente sin interrumpir el flujo (crash) ni requerir intervención humana.
 
 ---
 
@@ -87,6 +87,7 @@ Responsable de interactuar exclusivamente con las ventanas de diálogo nativas d
 Al finalizar la prueba, se debe auditar el código para verificar las siguientes directrices:
 
 - **Responsabilidad Única (Clean Code):** Separación clara entre `ExcelManager` (manejo de la app) y `FileExplorer` (manejo de diálogos de Windows y advertencias de sobreescritura).
+- **Prohibición de Pausas Estáticas (`time.sleep`):** Queda estrictamente prohibido el uso del módulo `time.sleep()`. Todas las validaciones de UI deben apoyarse en mecanismos nativos de la librería seleccionada (métodos como `.exists()`, `.wait()`, o verificación de propiedades dinámicas con `timeout`).
 - **Gestión de Rutas:** Uso exclusivo y demostrable de `pathlib` para la manipulación de rutas.
 - **Anti-Fragilidad:** Interacción basada en identificadores de accesibilidad (UI Automation) o envío de teclas nativas, sin uso de clics por coordenadas X/Y. Control explícito de ventanas modales emergentes.
 - **Trazabilidad:** Presencia de logs en los métodos de ambas clases para registrar el inicio de las acciones, los resultados y las detecciones de sobreescritura.
