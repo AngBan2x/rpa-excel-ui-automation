@@ -38,7 +38,7 @@ Responsable de interactuar exclusivamente con las ventanas de diálogo nativas d
 
 ### Caso de Prueba 01: Inicialización e Importación Dinámica
 
-**Objetivo:** Verificar que el script pueda levantar una instancia de Excel a través de `ExcelManager` y cargar un archivo utilizando `FileExplorer` sin depender de selectores frágiles.
+**Objetivo:** Verificar que el bot pueda levantar una instancia de Excel a través de `ExcelManager` y cargar un archivo utilizando `FileExplorer` sin depender de selectores frágiles.
 
 **Pasos de Ejecución:**
 
@@ -73,12 +73,12 @@ Responsable de interactuar exclusivamente con las ventanas de diálogo nativas d
 
 3. Delegar la interacción a `FileExplorer`.
 4. Comprobar que `FileExplorer` inyecte la ruta absoluta destino (`data/output/destino.xlsx`) y haga clic en el botón de guardar.
-5. **(Condición de Reemplazo):** Si el sistema operativo arroja una ventana de advertencia indicando que el archivo ya existe, el script debe confirmar la acción haciendo clic en "Sí" para reemplazarlo.
+5. **(Condición de Reemplazo):** Si el sistema operativo arroja una ventana de advertencia indicando que el archivo ya existe, el bot debe confirmar la acción haciendo clic en "Sí" para reemplazarlo.
 
 **Resultados Esperados:**
 
 - **Éxito:** Se crea o actualiza el archivo en el directorio `output`, cumpliendo la regla de negocio de no alterar la ruta origen.
-- **Criterio de Robustez:** El script debe ser capaz de interceptar de manera proactiva la ventana emergente de confirmación de sobreescritura. El proceso debe reemplazar el archivo automáticamente sin interrumpir el flujo (crash) ni requerir intervención humana.
+- **Criterio de Robustez:** El bot debe ser capaz de interceptar de manera proactiva la ventana emergente de confirmación de sobreescritura. El proceso debe reemplazar el archivo automáticamente sin interrumpir el flujo (crash) ni requerir intervención humana.
 
 ---
 
