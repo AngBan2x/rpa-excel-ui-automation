@@ -29,7 +29,7 @@ Responsable de gestionar la instancia de la aplicación y disparar los eventos p
 
 Responsable de interactuar exclusivamente con las ventanas de diálogo nativas del sistema operativo (Explorador de archivos).
 
-- **Acción de Apertura**: Método para inyectar la ruta del archivo de origen en el campo de texto del explorador y confirmar la selección.
+- **Acción de Apertura**: Método para inyectar la ruta del archivo de origen en el campo de texto del explorador y confirmar la selección mediante el selector específico del elemento.
 - **Acción de Guardado**: Método para ingresar la ruta destino en el explorador, hacer clic de forma programática en el botón "Guardar" y confirmar la acción de reemplazar el archivo si el sistema detecta que ya existe.
 
 ---
@@ -38,7 +38,7 @@ Responsable de interactuar exclusivamente con las ventanas de diálogo nativas d
 
 ### Caso de Prueba 01: Inicialización e Importación Dinámica
 
-**Objetivo:** Verificar que el bot pueda levantar una instancia de Excel a través de `ExcelManager` y cargar un archivo utilizando `FileExplorer` sin depender de selectores frágiles.
+**Objetivo:** Verificar que el bot pueda levantar una instancia de Excel a través de `ExcelManager` y cargar un archivo utilizando `FileExplorer` sin depender de selectores frágiles ni saltos de navegación a ciegas.
 
 **Pasos de Ejecución:**
 
@@ -51,12 +51,12 @@ Responsable de interactuar exclusivamente con las ventanas de diálogo nativas d
 
    ![Ventana de diálogo del explorador para abrir archivo](img/openfile.png)
 
-4. El control se delega a la clase `FileExplorer` para inyectar correctamente la ruta de origen (`.data/input/origen.xlsx`) y ejecutar la acción de abrir.
+4. El control se delega a la clase `FileExplorer` para inyectar directamente la ruta de origen (`.data/input/origen.xlsx`) en el control `Edit` correspondiente (sin usar la tecla `Tab` para desplazarse) y ejecutar la acción de abrir.
 
 **Resultados Esperados:**
 
 - **Éxito:** El archivo `origen.xlsx` se abre correctamente, quedando la ventana de Excel activa.
-- **Criterio de Robustez:** Prohibido el uso de pausas arbitrarias (`time.sleep()`). El sistema debe emplear sincronización basada en eventos o métodos nativos de espera (ej. `.wait('ready')`, `.exists()`) con timeouts explícitos para aguardar a que la interfaz cargue.
+- **Criterio de Robustez:** Prohibido el uso de pausas arbitrarias (`time.sleep()`) y la navegación mediante tabuladores (`Tab`). El sistema debe emplear sincronización basada en eventos y direccionamiento explícito a elementos UI.
 
 ---
 
@@ -72,8 +72,8 @@ Responsable de interactuar exclusivamente con las ventanas de diálogo nativas d
    ![Ventana de diálogo del explorador para exportar archivo](img/saveas.png)
 
 3. Delegar la interacción a `FileExplorer`.
-4. Comprobar que `FileExplorer` inyecte la ruta absoluta destino (`.data/output/destino.xlsx`) y haga clic en el botón de guardar.
-5. **(Condición de Reemplazo):** Si el sistema operativo arroja una ventana de advertencia indicando que el archivo ya existe, el bot debe evaluar su presencia dinámicamente mediante el método `.exists()` de la ventana y confirmar la acción haciendo clic en "Sí" para reemplazarlo.
+4. Comprobar que `FileExplorer` enfoque directamente el control de texto del explorador, inyecte la ruta absoluta destino (`.data/output/destino.xlsx`) y ejecute la acción sobre el botón "Guardar" sin recurrir a ciclos de `Tab`.
+5. **(Condición de Reemplazo):** Si el sistema operativo arroja una ventana de advertencia indicando que el archivo ya existe, el bot debe evaluar su presencia dinámicamente mediante el método `.exists()` de la ventana y confirmar la acción interactuando directamente con el botón "Sí" para reemplazarlo.
 
 **Resultados Esperados:**
 
@@ -88,6 +88,7 @@ Al finalizar la prueba, se debe auditar el código para verificar las siguientes
 
 - **Responsabilidad Única (Clean Code):** Separación clara entre `ExcelManager` (manejo de la app) y `FileExplorer` (manejo de diálogos de Windows y advertencias de sobreescritura).
 - **Prohibición de Pausas Estáticas (`time.sleep`):** Queda estrictamente prohibido el uso del módulo `time.sleep()`. Todas las validaciones de UI deben apoyarse en mecanismos nativos de la librería seleccionada (métodos como `.exists()`, `.wait()`, o verificación de propiedades dinámicas con `timeout`).
+- **Prohibición de Navegación Secuencial por Tabulación (`Tab`):** Queda prohibido el uso de la tecla `Tab` para desplazarse entre elementos o campos de texto de la interfaz, ya que constituye **automatización frágil**. La interacción con cada campo o botón debe realizarse localizando directamente el objeto mediante su selector de UI Automation (ej. `child_window(control_type="...", ...)`) o su ID de accesibilidad.
 - **Gestión de Rutas:** Uso exclusivo y demostrable de `pathlib` para la manipulación de rutas.
-- **Anti-Fragilidad:** Interacción basada en identificadores de accesibilidad (UI Automation) o envío de teclas nativas, sin uso de clics por coordenadas X/Y. Control explícito de ventanas modales emergentes.
+- **Anti-Fragilidad:** Interacción basada en identificadores de accesibilidad (UI Automation) o envío de teclas de método abreviado global (ej. F12), sin uso de clics por coordenadas X/Y ni desplazamientos a ciegas con `Tab`. Control explícito de ventanas modales emergentes.
 - **Trazabilidad:** Presencia de logs en los métodos de ambas clases para registrar el inicio de las acciones, los resultados y las detecciones de sobreescritura.
