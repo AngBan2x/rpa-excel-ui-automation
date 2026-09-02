@@ -1,19 +1,76 @@
 [project]
 name = "rpa-excel-ui-automation"
 version = "0.1.0"
-description = "Default template for PDM package"
-authors = [
-    {name = "merzamac", email = "100945727+merzamac@users.noreply.github.com"},
-]
-dependencies = ["uiautomation>=2.0.29"]
+description = "RPA Excel UI Automation con Clean Code, UI Automation robusto, Git automation"
+authors = [{name = "AngBan2x"}]
+dependencies = ["uiautomation>=2.0.29", "openpyxl>=3.1.2"]
 requires-python = ">=3.12"
 readme = "README.md"
 license = {text = "MIT"}
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=4.1",
+    "pytest-mock>=3.12",
+    "ruff>=0.16.5",
+    "mypy>=2.3.1",
+    "pre-commit>=3.6",
+    "commitizen>=3.13",
+    "pdm>=2.18",
+    "pydantic>=2.7",
+]
 
 [build-system]
 requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
-
 [tool.pdm]
 distribution = true
+
+[tool.pdm.scripts]
+dev-install = "pdm install -d"
+test = "pytest -v --cov=src --cov-fail-under=90 --cov-report=term-missing"
+lint = "ruff check src tests && mypy src"
+format = "ruff format src tests"
+typecheck = "mypy src"
+pre-commit = "pre-commit run --all-files"
+sync-fork = "gh repo sync AngBan2x/rpa-excel-ui-automation --branch main"
+create-pr = "gh pr create --fill --base main"
+version-bump = "pdm version patch && git push --tags"
+generate-test-data = "python -c \"import openpyxl; wb=openpyxl.Workbook(); wb.save('.data/input/origen.xlsx')\""
+orchestrator = "python -m opencode_agent.orchestrator"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+select = ["E", "F", "I", "UP", "B", "C4", "PT", "T20", "SIM", "ARG", "PTH", "ERA", "PD", "PL", "TRY", "NPY", "RSE", "RET", "ASYNC", "LOG", "TCH", "DTZ", "FUR", "ISC", "ICN", "PIE", "TID", "QMD"]
+ignore = []
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unused_ignores = true
+disallow_untyped_defs = true
+warn_return_any = true
+warn_unused_configs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+addopts = "--strict-markers --strict-config"
+
+[tool.coverage.run]
+source = ["src"]
+omit = ["tests/*", "*/__pycache__/*"]
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+version = "0.1.0"
+tag_format = "v$version"

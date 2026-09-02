@@ -1,0 +1,28 @@
+modelos gratuitos de opencode disponibles actualmente:
+nemotron 3.5 lightning free
+muse spark 1.2 free
+hy3 free
+nemotron 3 ultra free
+mimo v2.5 free
+big pickle
+
+modelos gratuitos de openrouter disponibles actualmente:
+
+ling 3.0 flash fin
+Dots3-Note Preview
+lfm2.5-2.6B
+Nemotron 3.5 Lightning
+Inkling Small
+Laguna S 2.1
+Inkling
+Laguna XS 2.1
+North Mini Code
+Nemotron 3 Ultra
+Nemotron 3.5 Content Safety
+MiniMax M3
+Nemotron 3 Nano Omni
+Gemma 4 26B A4B
+Gemma 4 31B
+MiniMax M2.7
+Nemotron 3 Super
+Free Models Router

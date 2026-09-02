@@ -1,0 +1,65 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup PDM
+        uses: pdm-project/setup-pdm@v4
+        with:
+          python-version: "3.12"
+          cache: true
+      
+      - name: Install dependencies
+        run: pdm install -d
+      
+      - name: Create test data
+        run: pdm run generate-test-data
+      
+      - name: Run tests with coverage
+        run: pdm run test
+      
+      - name: Lint and typecheck
+        run: pdm run lint
+      
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        if: always()
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage.xml
+          flags: unittests
+          name: codecov-umbrella
+
+  sync-fork:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          repository: AngBan2x/rpa-excel-ui-automation
+          token: ${{ secrets.GH_PAT }}
+          fetch-depth: 0
+      
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+      
+      - name: Sync fork with upstream
+        run: gh repo sync AngBan2x/rpa-excel-ui-automation --branch main
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
