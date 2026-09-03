@@ -29,7 +29,25 @@ class FileExplorer:
             logger: Logger personalizado. Si es None, usa el logger del modulo.
         """
         self._logger = logger or logging.getLogger(__name__)
+        self.current_dialog: auto.WindowControl | None = None
         self._logger.info("FileExplorer inicializado")
+
+    def wait_for_window(self, timeout: int = 5) -> bool:
+        """Espera robusta a que una ventana este disponible usando WaitForExist().
+
+        Patrones sincronizacion nativa de uiautomation sin time.sleep().
+
+        Args:
+            timeout: Tiempo maximo de espera en segundos.
+
+        Returns:
+            True si la ventana aparece dentro del timeout, False en caso contrario.
+        """
+        self._logger.debug("Esperando ventana hasta %s segundos...", timeout)
+        if self.current_dialog is not None:
+            return self.current_dialog.WaitForExist(timeout, 0.5)
+        self._logger.debug("Ventana no aparecio tras %.1fs", timeout)
+        return False
 
     def open_file_dialog(self, file_path: Path) -> bool:
         """Inyecta la ruta en el dialogo 'Abrir' y hace click en 'Abrir'.
@@ -47,7 +65,8 @@ class FileExplorer:
         try:
             # Localizar dialogo "Abrir" - esperar hasta 5 segundos
             dialog = auto.WindowControl(searchDepth=1, Name="Abrir")
-            if not dialog.WaitForExist(5, 0.5):
+            self.current_dialog = dialog
+            if not self.current_dialog.WaitForExist(5, 0.5):
                 self._logger.error("Dialogo 'Abrir' no aparecio tras 5 segundos")
                 return False
 
@@ -74,7 +93,7 @@ class FileExplorer:
             open_button.Click()
 
             # Esperar a que el dialogo se cierre (max 5 segundos)
-            if dialog.WaitForExist(5, 0.5):
+            if self.current_dialog is not None and self.current_dialog.WaitForExist(5, 0.5):
                 self._logger.warning("Dialogo 'Abrir' no se cerro tras click en 'Abrir'")
                 return False
 
@@ -102,7 +121,8 @@ class FileExplorer:
         try:
             # Localizar dialogo "Guardar como" - esperar hasta 5 segundos
             dialog = auto.WindowControl(searchDepth=1, Name="Guardar como")
-            if not dialog.WaitForExist(5, 0.5):
+            self.current_dialog = dialog
+            if not self.current_dialog.WaitForExist(5, 0.5):
                 self._logger.error("Dialogo 'Guardar como' no aparecio tras 5 segundos")
                 return False
 
@@ -135,7 +155,7 @@ class FileExplorer:
                 self._logger.debug("No aparecio modal de reemplazo (archivo nuevo o usuario cancelo)")
 
             # Esperar a que el dialogo se cierre (max 5 segundos)
-            if dialog.WaitForExist(5, 0.5):
+            if self.current_dialog is not None and self.current_dialog.WaitForExist(5, 0.5):
                 self._logger.warning("Dialogo 'Guardar como' no se cerro tras click en 'Guardar'")
                 return False
 

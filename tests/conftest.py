@@ -75,7 +75,7 @@ def mock_app_window() -> MagicMock:
     """Mock de ventana principal de Excel (XLMAIN)."""
     mock_app = MagicMock()
     mock_app.Exists.return_value = True
-    mock_app.WaitForExist.return_value = True
+    mock_app.exists.return_value = True
     mock_app.Name = "Microsoft Excel"
     return mock_app
 
