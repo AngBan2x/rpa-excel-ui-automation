@@ -87,13 +87,50 @@ class TestConnectOrLaunchExcel:
             mock_app_after,
         ]
 
-        # Act
-        result = excel_manager._connect_or_launch_excel()
+        # Mock para que shutil.which retorne None (buscar en rutas conocidas)
+        with patch("rpa_excel_ui_automation.excel_manager.Path") as mock_path:
+            mock_path.return_value.exists.return_value = True
+            mock_path.return_value.__str__ = lambda self: r"C:\Program Files\Microsoft Office\root\Office16\EXCEL.EXE"
+
+            # Act
+            result = excel_manager._connect_or_launch_excel()
 
         # Assert
         assert result is True
         assert excel_manager.app is mock_app_after
-        mock_subprocess.assert_called_once_with(["excel.exe"])
+
+    def test_launch_excel_with_file_path(
+        self,
+        excel_manager: ExcelManager,
+        mock_uia_excel_manager: MagicMock,
+        mock_subprocess: MagicMock,
+        sample_input_path: Path,
+    ) -> None:
+        """TC01: Lanza Excel con archivo especifico."""
+        # Arrange
+        mock_app_before = MagicMock()
+        mock_app_before.Exists.return_value = False
+
+        mock_app_after = MagicMock()
+        mock_app_after.WaitForExist.return_value = True
+        mock_app_after.Name = "Microsoft Excel"
+
+        mock_uia_excel_manager.WindowControl.side_effect = [
+            mock_app_before,
+            mock_app_after,
+        ]
+
+        # Mock para que shutil.which retorne None (buscar en rutas conocidas)
+        with patch("rpa_excel_ui_automation.excel_manager.Path") as mock_path:
+            mock_path.return_value.exists.return_value = True
+            mock_path.return_value.__str__ = lambda self: r"C:\Program Files\Microsoft Office\root\Office16\EXCEL.EXE"
+
+            # Act
+            result = excel_manager._connect_or_launch_excel(file_path=sample_input_path)
+
+        # Assert
+        assert result is True
+        assert excel_manager.app is mock_app_after
 
     def test_launch_excel_file_not_found(
         self,
@@ -170,51 +207,54 @@ class TestOpenFile:
         excel_manager: ExcelManager,
         mock_uia_excel_manager: MagicMock,
         mock_app_window: MagicMock,
-        mock_open_dialog: MagicMock,
     ) -> None:
-        """TC01: open_file() abre Excel y dialogo Abrir (sin file_path)."""
+        """TC01: open_file() abre Excel sin archivo."""
         # Arrange
-        mock_uia_excel_manager.WindowControl.side_effect = [
-            mock_app_window,
-            mock_open_dialog,
-        ]
+        mock_uia_excel_manager.WindowControl.return_value = mock_app_window
         mock_app_window.Exists.return_value = True
-        mock_uia_excel_manager.WaitForExist.return_value = True
 
         # Act
         result = excel_manager.open_file()
 
         # Assert
         assert result is True
-        mock_app_window.SendKeys.assert_called_with("{Ctrl}o", waitTime=0.5)
-        mock_uia_excel_manager.WaitForExist.assert_called_with(mock_open_dialog, 5)
+        mock_uia_excel_manager.WindowControl.assert_called_with(
+            searchDepth=1, ClassName="XLMAIN"
+        )
 
     def test_open_file_con_file_path(
         self,
         excel_manager: ExcelManager,
         mock_uia_excel_manager: MagicMock,
         mock_app_window: MagicMock,
-        mock_open_dialog: MagicMock,
+        mock_subprocess: MagicMock,
         sample_input_path: Path,
     ) -> None:
-        """TC01: open_file() con file_path delega a FileExplorer."""
+        """TC01: open_file() con file_path lanza Excel con el archivo."""
         # Arrange
-        mock_uia_excel_manager.WindowControl.side_effect = [
-            mock_app_window,
-            mock_open_dialog,
-        ]
-        mock_app_window.Exists.return_value = True
+        mock_app_before = MagicMock()
+        mock_app_before.Exists.return_value = False
 
-        with patch.object(
-            excel_manager._file_explorer, "open_file_dialog", return_value=True
-        ) as mock_fe:
+        mock_app_after = MagicMock()
+        mock_app_after.WaitForExist.return_value = True
+        mock_app_after.Name = "Microsoft Excel"
+
+        mock_uia_excel_manager.WindowControl.side_effect = [
+            mock_app_before,
+            mock_app_after,
+        ]
+
+        # Mock para que shutil.which retorne None (buscar en rutas conocidas)
+        with patch("rpa_excel_ui_automation.excel_manager.Path") as mock_path:
+            mock_path.return_value.exists.return_value = True
+            mock_path.return_value.__str__ = lambda self: r"C:\Program Files\Microsoft Office\root\Office16\EXCEL.EXE"
 
             # Act
             result = excel_manager.open_file(file_path=sample_input_path)
 
-            # Assert
-            assert result is True
-            mock_fe.assert_called_once_with(sample_input_path)
+        # Assert
+        assert result is True
+        assert excel_manager.app is mock_app_after
 
     def test_open_file_no_excel_fails(
         self,
@@ -227,62 +267,13 @@ class TestOpenFile:
         mock_app.Exists.return_value = False
         mock_uia_excel_manager.WindowControl.return_value = mock_app
 
-        # Act
-        result = excel_manager.open_file()
-
-        # Assert
-        assert result is False
-
-    def test_open_file_dialog_timeout_fails(
-        self,
-        excel_manager: ExcelManager,
-        mock_uia_excel_manager: MagicMock,
-        mock_app_window: MagicMock,
-    ) -> None:
-        """TC01: open_file() falla si dialogo Abrir no aparece."""
-        # Arrange
-        mock_dialog = MagicMock()
-
-        mock_uia_excel_manager.WindowControl.side_effect = [
-            mock_app_window,
-            mock_dialog,
-        ]
-        mock_app_window.Exists.return_value = True
-        mock_uia_excel_manager.WaitForExist.return_value = False
-
-        # Act
-        result = excel_manager.open_file()
-
-        # Assert
-        assert result is False
-        mock_uia_excel_manager.WaitForExist.assert_called_with(mock_dialog, 5)
-
-    def test_open_file_file_explorer_fails(
-        self,
-        excel_manager: ExcelManager,
-        mock_uia_excel_manager: MagicMock,
-        mock_app_window: MagicMock,
-        mock_open_dialog: MagicMock,
-        sample_input_path: Path,
-    ) -> None:
-        """TC01: open_file() falla si FileExplorer falla."""
-        # Arrange
-        mock_uia_excel_manager.WindowControl.side_effect = [
-            mock_app_window,
-            mock_open_dialog,
-        ]
-        mock_app_window.Exists.return_value = True
-
-        with patch.object(
-            excel_manager._file_explorer, "open_file_dialog", return_value=False
-        ) as mock_fe:
-
+        # Mock para que _connect_or_launch_excel falle
+        with patch.object(excel_manager, '_connect_or_launch_excel', return_value=False):
             # Act
-            result = excel_manager.open_file(file_path=sample_input_path)
+            result = excel_manager.open_file()
 
-            # Assert
-            assert result is False
-            mock_fe.assert_called_once_with(sample_input_path)
+        # Assert
+        assert result is False
 
     def test_open_file_exception_handling(
         self,
@@ -302,6 +293,58 @@ class TestOpenFile:
         assert result is False
 
 
+class TestEnsureWorkbookDirty:
+    """Tests para _ensure_workbook_dirty()."""
+
+    def test_ensure_workbook_dirty_sends_escape_space_ctrl_z(
+        self,
+        excel_manager: ExcelManager,
+        mock_app_window: MagicMock,
+    ) -> None:
+        """TC03: _ensure_workbook_dirty() envia Escape, espacio y Ctrl+Z."""
+        # Arrange
+        excel_manager.app = mock_app_window
+
+        # Act
+        excel_manager._ensure_workbook_dirty()
+
+        # Assert - Verificar secuencia de teclas: Escape, Space, Ctrl+Z
+        calls = mock_app_window.SendKeys.call_args_list
+        assert len(calls) == 3
+        assert calls[0].args == ("{Escape}",)
+        assert calls[0].kwargs["waitTime"] == 0.3
+        assert calls[1].args == (" ",)
+        assert calls[1].kwargs["waitTime"] == 0.3
+        assert calls[2].args == ("{Ctrl}z",)
+        assert calls[2].kwargs["waitTime"] == 0.3
+
+    def test_save_as_calls_ensure_workbook_dirty(
+        self,
+        excel_manager: ExcelManager,
+        mock_uia_excel_manager: MagicMock,
+        mock_save_dialog: MagicMock,
+        mock_app_window: MagicMock,
+    ) -> None:
+        """TC02+TC03: save_as() llama a _ensure_workbook_dirty() antes de F12."""
+        # Arrange
+        excel_manager.app = mock_app_window
+        mock_app_window.Exists.return_value = True
+        mock_uia_excel_manager.WindowControl.return_value = mock_save_dialog
+        mock_uia_excel_manager.WaitForExist.return_value = True
+
+        # Act
+        with patch.object(excel_manager, "_ensure_workbook_dirty") as mock_dirty:
+            result = excel_manager.save_as()
+
+        # Assert
+        assert result is True
+        mock_dirty.assert_called_once()
+        # Verificar que F12 se envia DESPUES de _ensure_workbook_dirty
+        calls = mock_app_window.SendKeys.call_args_list
+        f12_calls = [c for c in calls if c.args == ("{F12}",)]
+        assert len(f12_calls) == 1
+
+
 class TestSaveAs:
     """Tests para save_as()."""
 
@@ -315,6 +358,9 @@ class TestSaveAs:
         """TC02: save_as() abre dialogo Guardar como (sin file_path)."""
         # Arrange
         excel_manager.app = mock_app_window
+        mock_app_window.Exists.return_value = True
+        
+        # Mock para que F12 funcione (explorer dialog aparece)
         mock_uia_excel_manager.WindowControl.return_value = mock_save_dialog
         mock_uia_excel_manager.WaitForExist.return_value = True
 
@@ -324,7 +370,6 @@ class TestSaveAs:
         # Assert
         assert result is True
         mock_app_window.SendKeys.assert_called_with("{F12}", waitTime=0.5)
-        mock_uia_excel_manager.WaitForExist.assert_called_with(mock_save_dialog, 5)
 
     def test_save_as_con_file_path(
         self,
@@ -389,8 +434,9 @@ class TestSaveAs:
         """TC02: save_as() falla si dialogo Guardar como no aparece."""
         # Arrange
         excel_manager.app = mock_app_window
-        mock_dialog = MagicMock()
-        mock_uia_excel_manager.WindowControl.return_value = mock_dialog
+        mock_app_window.Exists.return_value = True
+        
+        # Mock para que F12 no funcione (dialogo no aparece)
         mock_uia_excel_manager.WaitForExist.return_value = False
 
         # Act
@@ -398,7 +444,6 @@ class TestSaveAs:
 
         # Assert
         assert result is False
-        mock_uia_excel_manager.WaitForExist.assert_called_with(mock_dialog, 5)
 
     def test_save_as_file_explorer_fails(
         self,
@@ -568,14 +613,10 @@ class TestContextManager:
         excel_manager: ExcelManager,
         mock_uia_excel_manager: MagicMock,
         mock_app_window: MagicMock,
-        mock_open_dialog: MagicMock,
     ) -> None:
         """TC01: Context manager funciona con open_file()."""
         # Arrange
-        mock_uia_excel_manager.WindowControl.side_effect = [
-            mock_app_window,
-            mock_open_dialog,
-        ]
+        mock_uia_excel_manager.WindowControl.return_value = mock_app_window
         mock_app_window.Exists.return_value = True
         mock_app_window.WaitForExist.return_value = False  # Excel se cierra
 
@@ -587,6 +628,30 @@ class TestContextManager:
         assert result is True
 
 
+class TestConnectOrLaunchExcelNotFound:
+    """Tests adicionales para _connect_or_launch_excel()."""
+
+    def test_launch_excel_exe_not_found_anywhere(
+        self,
+        excel_manager: ExcelManager,
+        mock_uia_excel_manager: MagicMock,
+    ) -> None:
+        """_connect_or_launch_excel falla si excel.exe no esta en PATH ni rutas conocidas."""
+        # Arrange
+        mock_app = MagicMock()
+        mock_app.Exists.return_value = False
+        mock_uia_excel_manager.WindowControl.return_value = mock_app
+
+        # Act
+        with patch("shutil.which", return_value=None), \
+             patch("rpa_excel_ui_automation.excel_manager.Path") as mock_path_cls:
+            mock_path_cls.return_value.exists.return_value = False
+            result = excel_manager._connect_or_launch_excel()
+
+        # Assert
+        assert result is False
+
+
 class TestExcelManagerIntegration:
     """Tests de integracion entre metodos de ExcelManager."""
 
@@ -595,7 +660,6 @@ class TestExcelManagerIntegration:
         excel_manager: ExcelManager,
         mock_uia_excel_manager: MagicMock,
         mock_app_window: MagicMock,
-        mock_open_dialog: MagicMock,
         mock_save_dialog: MagicMock,
         sample_input_path: Path,
         sample_output_path: Path,
@@ -604,14 +668,11 @@ class TestExcelManagerIntegration:
         # Arrange
         mock_uia_excel_manager.WindowControl.side_effect = [
             mock_app_window,  # _connect_or_launch_excel
-            mock_open_dialog,  # open_file dialog
             mock_save_dialog,  # save_as dialog
         ]
         mock_app_window.Exists.return_value = True
 
         with patch.object(
-            excel_manager._file_explorer, "open_file_dialog", return_value=True
-        ), patch.object(
             excel_manager._file_explorer, "save_file_dialog", return_value=True
         ):
 

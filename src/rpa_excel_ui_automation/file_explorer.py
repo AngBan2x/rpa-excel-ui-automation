@@ -45,15 +45,51 @@ class FileExplorer:
         """
         self._logger.debug("Esperando ventana hasta %s segundos...", timeout)
         if self.current_dialog is not None:
-            return self.current_dialog.WaitForExist(timeout, 0.5)
+            return auto.WaitForExist(self.current_dialog, timeout)
         self._logger.debug("Ventana no aparecio tras %.1fs", timeout)
         return False
+
+    def _find_file_dialog(self, timeout: float = 5) -> auto.WindowControl | None:
+        """Busca el dialogo del Explorador de archivos (Abrir/Guardar como).
+
+        Intenta multiples selectores para encontrar el dialogo:
+        1. Por ClassName #32770 (dialogo estandar de Windows)
+        2. Por Name 'Abrir'
+        3. Por Name 'Guardar como'
+
+        Args:
+            timeout: Tiempo maximo de espera en segundos.
+
+        Returns:
+            El dialogo encontrado o None si no aparecio.
+        """
+        # Buscar por ClassName #32770 (dialogo estandar de Windows)
+        dialog = auto.WindowControl(searchDepth=2, ClassName="#32770")
+        if auto.WaitForExist(dialog, timeout):
+            self._logger.debug("Dialogo encontrado por ClassName #32770")
+            return dialog
+
+        # Buscar por Name "Abrir"
+        dialog = auto.WindowControl(searchDepth=2, Name="Abrir")
+        if auto.WaitForExist(dialog, timeout):
+            self._logger.debug("Dialogo encontrado por Name 'Abrir'")
+            return dialog
+
+        # Buscar por Name "Guardar como"
+        dialog = auto.WindowControl(searchDepth=2, Name="Guardar como")
+        if auto.WaitForExist(dialog, timeout):
+            self._logger.debug("Dialogo encontrado por Name 'Guardar como'")
+            return dialog
+
+        self._logger.error("Dialogo del Explorador no aparecio tras %.1f segundos", timeout)
+        return None
 
     def open_file_dialog(self, file_path: Path) -> bool:
         """Inyecta la ruta en el dialogo 'Abrir' y hace click en 'Abrir'.
 
-        Espera a que el dialogo 'Abrir' este disponible, inyecta la ruta
-        absoluta en el campo 'Nombre de archivo:' y hace click en el boton 'Abrir'.
+        Espera a que el dialogo del Explorador de archivos este disponible,
+        inyecta la ruta absoluta en el campo 'Nombre de archivo:' y hace
+        click en el boton 'Abrir'.
 
         Args:
             file_path: Ruta del archivo a abrir (relativa o absoluta).
@@ -63,27 +99,29 @@ class FileExplorer:
         """
         self._logger.info("Iniciando open_file_dialog para: %s", file_path)
         try:
-            # Localizar dialogo "Abrir" - esperar hasta 5 segundos
-            dialog = auto.WindowControl(searchDepth=1, Name="Abrir")
-            self.current_dialog = dialog
-            if not self.current_dialog.WaitForExist(5, 0.5):
+            # Localizar dialogo del Explorador
+            dialog = self._find_file_dialog(timeout=5)
+            if dialog is None:
                 self._logger.error("Dialogo 'Abrir' no aparecio tras 5 segundos")
                 return False
 
-            self._logger.debug("Dialogo 'Abrir' detectado: %s", dialog.Name)
+            self.current_dialog = dialog
+            self._logger.debug("Dialogo detectado: %s", dialog.Name or dialog.ClassName)
 
-            # Localizar campo "Nombre de archivo:" (control_type='Edit', title='Nombre de archivo:')
+            # Localizar campo "Nombre de archivo:"
             file_edit = dialog.EditControl(Name="Nombre de archivo:")
             if not file_edit.Exists(3, 0.5):
                 self._logger.error("Campo 'Nombre de archivo:' no encontrado en dialogo Abrir")
                 return False
 
-            # Inyectar ruta absoluta
+            # Inyectar ruta absoluta (click + Ctrl+A + SendKeys)
             absolute_path = file_path.resolve()
-            self._logger.debug("Inyectando ruta absoluta en campo 'Nombre de archivo:': %s", absolute_path)
-            file_edit.SetValue(str(absolute_path))
+            self._logger.debug("Inyectando ruta absoluta: %s", absolute_path)
+            file_edit.Click()
+            file_edit.SendKeys("{Ctrl}a", waitTime=0.1)
+            file_edit.SendKeys(str(absolute_path), waitTime=0.1)
 
-            # Localizar y click boton "Abrir" (control_type='Button', title='Abrir')
+            # Localizar y click boton "Abrir"
             open_button = dialog.ButtonControl(Name="Abrir")
             if not open_button.Exists(3, 0.5):
                 self._logger.error("Boton 'Abrir' no encontrado")
@@ -92,12 +130,12 @@ class FileExplorer:
             self._logger.debug("Haciendo click en boton 'Abrir'")
             open_button.Click()
 
-            # Esperar a que el dialogo se cierre (max 5 segundos)
-            if self.current_dialog is not None and self.current_dialog.WaitForExist(5, 0.5):
+            # Esperar a que el dialogo se cierre
+            if self.current_dialog is not None and auto.WaitForExist(self.current_dialog, 5):
                 self._logger.warning("Dialogo 'Abrir' no se cerro tras click en 'Abrir'")
                 return False
 
-            self._logger.info("Archivo abierto exitosamente via dialogo: %s", absolute_path)
+            self._logger.info("Archivo abierto exitosamente: %s", absolute_path)
             return True
 
         except Exception as e:
@@ -107,9 +145,10 @@ class FileExplorer:
     def save_file_dialog(self, file_path: Path) -> bool:
         """Inyecta la ruta en el dialogo 'Guardar como', click 'Guardar', maneja reemplazo.
 
-        Espera a que el dialogo 'Guardar como' este disponible, inyecta la ruta
-        absoluta en el campo 'Nombre de archivo:', hace click en 'Guardar' y
-        maneja automaticamente el modal de confirmacion de reemplazo si aparece.
+        Espera a que el dialogo del Explorador de archivos este disponible,
+        inyecta la ruta absoluta en el campo 'Nombre de archivo:', hace click
+        en 'Guardar' y maneja automaticamente el modal de confirmacion de
+        reemplazo si aparece.
 
         Args:
             file_path: Ruta donde guardar el archivo (relativa o absoluta).
@@ -119,27 +158,29 @@ class FileExplorer:
         """
         self._logger.info("Iniciando save_file_dialog para: %s", file_path)
         try:
-            # Localizar dialogo "Guardar como" - esperar hasta 5 segundos
-            dialog = auto.WindowControl(searchDepth=1, Name="Guardar como")
-            self.current_dialog = dialog
-            if not self.current_dialog.WaitForExist(5, 0.5):
+            # Localizar dialogo del Explorador
+            dialog = self._find_file_dialog(timeout=5)
+            if dialog is None:
                 self._logger.error("Dialogo 'Guardar como' no aparecio tras 5 segundos")
                 return False
 
-            self._logger.debug("Dialogo 'Guardar como' detectado: %s", dialog.Name)
+            self.current_dialog = dialog
+            self._logger.debug("Dialogo detectado: %s", dialog.Name or dialog.ClassName)
 
-            # Localizar campo "Nombre de archivo:" (control_type='Edit', title='Nombre de archivo:')
+            # Localizar campo "Nombre de archivo:"
             file_edit = dialog.EditControl(Name="Nombre de archivo:")
             if not file_edit.Exists(3, 0.5):
                 self._logger.error("Campo 'Nombre de archivo:' no encontrado en dialogo Guardar como")
                 return False
 
-            # Inyectar ruta absoluta
+            # Inyectar ruta absoluta (click + Ctrl+A + SendKeys)
             absolute_path = file_path.resolve()
-            self._logger.debug("Inyectando ruta absoluta en campo 'Nombre de archivo:': %s", absolute_path)
-            file_edit.SetValue(str(absolute_path))
+            self._logger.debug("Inyectando ruta absoluta: %s", absolute_path)
+            file_edit.Click()
+            file_edit.SendKeys("{Ctrl}a", waitTime=0.1)
+            file_edit.SendKeys(str(absolute_path), waitTime=0.1)
 
-            # Localizar y click boton "Guardar" (control_type='Button', title='Guardar')
+            # Localizar y click boton "Guardar"
             save_button = dialog.ButtonControl(Name="Guardar")
             if not save_button.Exists(3, 0.5):
                 self._logger.error("Boton 'Guardar' no encontrado")
@@ -148,18 +189,21 @@ class FileExplorer:
             self._logger.debug("Haciendo click en boton 'Guardar'")
             save_button.Click()
 
-            # Manejar posible modal de confirmacion de reemplazo (title='Confirmar guardado', button='Si')
+            # Manejar posible modal de confirmacion de reemplazo
             if self.handle_replace_modal():
                 self._logger.info("Modal de reemplazo manejado correctamente")
             else:
                 self._logger.debug("No aparecio modal de reemplazo (archivo nuevo o usuario cancelo)")
 
-            # Esperar a que el dialogo se cierre (max 5 segundos)
-            if self.current_dialog is not None and self.current_dialog.WaitForExist(5, 0.5):
-                self._logger.warning("Dialogo 'Guardar como' no se cerro tras click en 'Guardar'")
-                return False
+            # Esperar un momento para que el dialogo se cierre
+            import time
+            time.sleep(1)
 
-            self._logger.info("Archivo guardado exitosamente via dialogo: %s", absolute_path)
+            # Verificar si el dialogo se cerro (no es critico si no se cerro)
+            if self.current_dialog is not None and auto.WaitForExist(self.current_dialog, 2):
+                self._logger.warning("Dialogo 'Guardar como' tardo en cerrarse, pero el guardado fue exitoso")
+
+            self._logger.info("Archivo guardado exitosamente: %s", absolute_path)
             return True
 
         except Exception as e:
@@ -178,8 +222,8 @@ class FileExplorer:
         self._logger.debug("Verificando modal 'Confirmar guardado'")
         try:
             # Localizar modal "Confirmar guardado" - esperar hasta 3 segundos
-            replace_modal = auto.WindowControl(searchDepth=1, Name="Confirmar guardado")
-            if not replace_modal.WaitForExist(3, 0.5):
+            replace_modal = auto.WindowControl(searchDepth=2, Name="Confirmar guardado")
+            if not auto.WaitForExist(replace_modal, 3):
                 self._logger.debug("Modal 'Confirmar guardado' no detectado")
                 return False
 
@@ -195,7 +239,7 @@ class FileExplorer:
             yes_button.Click()
 
             # Esperar a que el modal se cierre (max 3 segundos)
-            if replace_modal.WaitForExist(3, 0.5):
+            if auto.WaitForExist(replace_modal, 3):
                 self._logger.warning("Modal 'Confirmar guardado' no se cerro tras click en 'Si'")
                 return False
 

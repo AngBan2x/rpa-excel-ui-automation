@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import subprocess
+import shutil
 from pathlib import Path
 from typing import Optional
 from types import TracebackType
@@ -38,62 +40,142 @@ class ExcelManager:
         self._file_explorer = FileExplorer(logger=self._logger)
         self._logger.info("ExcelManager inicializado")
 
-    def open_file(self, file_path: Optional[Path] = None) -> bool:
-        """Abre Excel y muestra el dialogo 'Abrir' (Ctrl+O).
-
-        Conecta a una instancia existente de Excel o lanza una nueva,
-        envia Ctrl+O para abrir el dialogo 'Abrir', y opcionalmente
-        delega la seleccion de archivo a FileExplorer.
-
-        Args:
-            file_path: Ruta opcional del archivo a abrir. Si se proporciona,
-                se delega a FileExplorer.open_file_dialog().
+    def _find_excel_path(self) -> Optional[str]:
+        """Busca la ruta del ejecutable de Excel.
 
         Returns:
-            True si el dialogo 'Abrir' se abrio correctamente (y el archivo
-            se selecciono si se proporciono file_path), False en caso contrario.
+            Ruta del ejecutable de Excel o None si no se encontro.
+        """
+        excel_path = shutil.which("excel.exe")
+        if excel_path is not None:
+            return excel_path
+
+        known_paths = [
+            r"C:\Program Files\Microsoft Office\root\Office16\EXCEL.EXE",
+            r"C:\Program Files (x86)\Microsoft Office\root\Office16\EXCEL.EXE",
+            r"C:\Program Files\Microsoft Office\Office16\EXCEL.EXE",
+        ]
+        for path in known_paths:
+            if Path(path).exists():
+                return path
+
+        return None
+
+    def _connect_or_launch_excel(self, file_path: Optional[Path] = None) -> bool:
+        """Conecta a Excel existente o lanza una nueva instancia.
+
+        Args:
+            file_path: Ruta opcional del archivo a abrir con Excel.
+
+        Returns:
+            True si se conecto o lanzo Excel correctamente, False en caso contrario.
+        """
+        self._logger.debug("Buscando ventana principal de Excel (XLMAIN)")
+        self.app = auto.WindowControl(searchDepth=1, ClassName="XLMAIN")
+
+        if self.app.Exists(3, 0.5):
+            self._logger.debug("Ventana Excel principal encontrada: %s", self.app.Name)
+            return True
+
+        self._logger.info("Excel no esta corriendo, lanzando nueva instancia")
+        try:
+            excel_path = self._find_excel_path()
+            if excel_path is None:
+                self._logger.error("No se encontro 'excel.exe' en el PATH ni en rutas conocidas")
+                return False
+
+            if file_path is not None:
+                self._logger.debug("Lanzando Excel con archivo: %s", file_path)
+                subprocess.Popen([excel_path, str(file_path.resolve())])
+            else:
+                self._logger.debug("Lanzando Excel sin archivo")
+                subprocess.Popen([excel_path])
+        except Exception as e:
+            self._logger.exception("Error al lanzar Excel: %s", e)
+            return False
+
+        # Esperar a que aparezca la ventana principal
+        self.app = auto.WindowControl(searchDepth=1, ClassName="XLMAIN")
+        if not auto.WaitForExist(self.app, 15):
+            self._logger.error("Excel no se inicio a tiempo (timeout 15s)")
+            return False
+
+        self._logger.debug("Ventana Excel principal encontrada tras lanzamiento: %s", self.app.Name)
+        return True
+
+    def open_file(self, file_path: Optional[Path] = None) -> bool:
+        """Abre Excel y carga el archivo especificado.
+
+        Conecta a una instancia existente de Excel o lanza una nueva,
+        y carga el archivo directamente. No usa Ctrl+O porque en Excel
+        moderno eso abre la vista Backstage.
+
+        Args:
+            file_path: Ruta del archivo a abrir. Si se proporciona,
+                Excel se lanza directamente con el archivo.
+
+        Returns:
+            True si el archivo se abrio correctamente, False en caso contrario.
         """
         self._logger.info("Iniciando open_file()")
         try:
-            # Conectar o lanzar Excel
-            if not self._connect_or_launch_excel():
-                self._logger.error("No se pudo conectar o lanzar Excel")
-                return False
-
-            # Enviar Ctrl+O para abrir dialogo "Abrir"
-            self._logger.debug("Enviando Ctrl+O para abrir dialogo 'Abrir'")
-            assert self.app is not None
-            self.app.SendKeys("{Ctrl}o", waitTime=0.5)
-
-            # Esperar dialogo "Abrir"
-            open_dialog = auto.WindowControl(searchDepth=1, Name="Abrir")
-            if not auto.WaitForExist(open_dialog, 5):
-                self._logger.error("Dialogo 'Abrir' no aparecio tras 5 segundos")
-                return False
-
-            self._logger.info("Dialogo 'Abrir' detectado correctamente")
-
-            # Si se proporciona ruta, delegar a FileExplorer
             if file_path is not None:
-                self._logger.debug("Delegando seleccion de archivo a FileExplorer: %s", file_path)
-                result = self._file_explorer.open_file_dialog(file_path)
-                if result:
-                    self._logger.info("Archivo abierto exitosamente: %s", file_path)
-                else:
-                    self._logger.error("Falló la apertura del archivo: %s", file_path)
-                return result
+                self._logger.debug("Abriendo Excel con archivo: %s", file_path)
+                if not self._connect_or_launch_excel(file_path):
+                    self._logger.error("No se pudo conectar o lanzar Excel con el archivo")
+                    return False
+            else:
+                self._logger.debug("Abriendo Excel sin archivo")
+                if not self._connect_or_launch_excel():
+                    self._logger.error("No se pudo conectar o lanzar Excel")
+                    return False
 
-            self._logger.info("open_file() completado exitosamente (solo dialogo)")
+            self._logger.info("open_file() completado exitosamente")
             return True
 
         except Exception as e:
             self._logger.exception("Error inesperado en open_file: %s", e)
             return False
 
+    def _ensure_workbook_dirty(self) -> None:
+        """Asegura que el libro tenga cambios sin guardar para que F12 funcione.
+
+        En Excel moderno (Office 365/2016+), F12 solo abre el dialogo
+        'Guardar como' cuando el libro tiene cambios sin guardar (dirty state).
+        Si el archivo esta limpio (ya guardado), F12 no hace nada.
+
+        Este metodo escribe un espacio en la celda actual para crear
+        ese estado, y luego se cancela con Ctrl+Z. El resultado neto es que
+        Excel detecta la deshacer accion y mantiene el dirty flag activo.
+
+        Patron: Space -> Ctrl+Z deja el workbook en estado dirty porque
+        Excel registra la accion de deshacer como un cambio pendiente.
+        """
+        import time
+
+        self._logger.debug("Marcando libro como 'no guardado' para que F12 funcione")
+
+        # Asegurar que el foco este en la hoja de calculo (no en Backstage/menu)
+        self.app.SendKeys("{Escape}", waitTime=0.3)
+        time.sleep(0.3)
+
+        # Escribir un espacio en la celda actual para marcar como dirty
+        self.app.SendKeys(" ", waitTime=0.3)
+        time.sleep(0.3)
+
+        # Deshacer el cambio pero mantener el dirty flag
+        # (Ctrl+Z deja el workbook en estado dirty en Excel moderno)
+        self.app.SendKeys("{Ctrl}z", waitTime=0.3)
+        time.sleep(0.3)
+
+        self._logger.debug("Libro marcado como 'no guardado'")
+
     def save_as(self, file_path: Optional[Path] = None) -> bool:
         """Invoca el dialogo 'Guardar como' (F12) y opcionalmente guarda el archivo.
 
-        Envía F12 para abrir el dialogo 'Guardar como', y opcionalmente
+        Asegura primero que el libro tenga cambios sin guardar (dirty state),
+        ya que en Excel moderno F12 solo funciona cuando hay cambios pendientes.
+        Luego envia F12 para abrir el dialogo 'Guardar como', y opcionalmente
         delega la inyeccion de ruta y guardado a FileExplorer.
 
         Args:
@@ -110,13 +192,20 @@ class ExcelManager:
                 self._logger.error("No hay instancia de Excel activa")
                 return False
 
+            # Asegurar que el libro tenga cambios sin guardar
+            # (necesario para que F12 funcione en Excel moderno)
+            self._ensure_workbook_dirty()
+
             # Enviar F12 para "Guardar como"
             self._logger.debug("Enviando F12 para abrir dialogo 'Guardar como'")
             assert self.app is not None
             self.app.SendKeys("{F12}", waitTime=0.5)
 
-            # Esperar dialogo "Guardar como"
-            save_dialog = auto.WindowControl(searchDepth=1, Name="Guardar como")
+            import time
+            time.sleep(2)
+
+            # Esperar dialogo "Guardar como" (hijo de XLMAIN, depth=2 desde desktop)
+            save_dialog = auto.WindowControl(searchDepth=2, Name="Guardar como")
             if not auto.WaitForExist(save_dialog, 5):
                 self._logger.error("Dialogo 'Guardar como' no aparecio tras 5 segundos")
                 return False
@@ -139,39 +228,6 @@ class ExcelManager:
         except Exception as e:
             self._logger.exception("Error inesperado en save_as: %s", e)
             return False
-
-    def _connect_or_launch_excel(self) -> bool:
-        """Conecta a Excel existente o lanza una nueva instancia.
-
-        Returns:
-            True si se conecto o lanzo Excel correctamente, False en caso contrario.
-        """
-        self._logger.debug("Buscando ventana principal de Excel (XLMAIN)")
-        self.app = auto.WindowControl(searchDepth=1, ClassName="XLMAIN")
-
-        if self.app.Exists(3, 0.5):
-            self._logger.debug("Ventana Excel principal encontrada: %s", self.app.Name)
-            return True
-
-        self._logger.info("Excel no esta corriendo, lanzando nueva instancia")
-        try:
-            import subprocess
-            subprocess.Popen(["excel.exe"])
-        except FileNotFoundError:
-            self._logger.error("No se encontro 'excel.exe' en el PATH")
-            return False
-        except Exception as e:
-            self._logger.exception("Error al lanzar Excel: %s", e)
-            return False
-
-        # Esperar a que aparezca la ventana principal
-        self.app = auto.WindowControl(searchDepth=1, ClassName="XLMAIN")
-        if not auto.WaitForExist(self.app, 15):
-            self._logger.error("Excel no se inicio a tiempo (timeout 15s)")
-            return False
-
-        self._logger.debug("Ventana Excel principal encontrada tras lanzamiento: %s", self.app.Name)
-        return True
 
     def close(self) -> bool:
         """Cierra la aplicacion Excel si esta abierta.
