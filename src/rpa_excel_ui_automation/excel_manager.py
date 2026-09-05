@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 import logging
-import subprocess
 import shutil
+import subprocess
 from pathlib import Path
-from typing import Optional
-from types import TracebackType
+from typing import TYPE_CHECKING
 
 import uiautomation as auto
 
 from rpa_excel_ui_automation.file_explorer import FileExplorer
+
+if TYPE_CHECKING:
+    from types import TracebackType
 
 
 logger = logging.getLogger(__name__)
@@ -29,18 +31,18 @@ class ExcelManager:
         _file_explorer: Instancia de FileExplorer para manejar dialogos.
     """
 
-    def __init__(self, logger: Optional[logging.Logger] = None) -> None:
+    def __init__(self, logger: logging.Logger | None = None) -> None:
         """Inicializa el gestor de Excel.
 
         Args:
             logger: Logger personalizado. Si es None, usa el logger del modulo.
         """
         self._logger = logger or logging.getLogger(__name__)
-        self.app: Optional[auto.WindowControl] = None
+        self.app: auto.WindowControl | None = None
         self._file_explorer = FileExplorer(logger=self._logger)
         self._logger.info("ExcelManager inicializado")
 
-    def _find_excel_path(self) -> Optional[str]:
+    def _find_excel_path(self) -> str | None:
         """Busca la ruta del ejecutable de Excel.
 
         Returns:
@@ -61,8 +63,11 @@ class ExcelManager:
 
         return None
 
-    def _connect_or_launch_excel(self, file_path: Optional[Path] = None) -> bool:
+    def _connect_or_launch_excel(self, file_path: Path | None = None) -> bool:
         """Conecta a Excel existente o lanza una nueva instancia.
+
+        Detecta si Excel ya esta abierto y maneja apropiadamente.
+        Si se proporciona file_path, lanza Excel directamente con el archivo.
 
         Args:
             file_path: Ruta opcional del archivo a abrir con Excel.
@@ -74,7 +79,7 @@ class ExcelManager:
         self.app = auto.WindowControl(searchDepth=1, ClassName="XLMAIN")
 
         if self.app.Exists(3, 0.5):
-            self._logger.debug("Ventana Excel principal encontrada: %s", self.app.Name)
+            self._logger.debug("Excel ya esta abierto: %s", self.app.Name)
             return True
 
         self._logger.info("Excel no esta corriendo, lanzando nueva instancia")
@@ -103,27 +108,73 @@ class ExcelManager:
         self._logger.debug("Ventana Excel principal encontrada tras lanzamiento: %s", self.app.Name)
         return True
 
-    def open_file(self, file_path: Optional[Path] = None) -> bool:
+    def open_file(self, file_path: Path | None = None, use_dialog: bool = False) -> bool:
         """Abre Excel y carga el archivo especificado.
 
-        Conecta a una instancia existente de Excel o lanza una nueva,
-        y carga el archivo directamente. No usa Ctrl+O porque en Excel
-        moderno eso abre la vista Backstage.
+        Conecta a una instancia existente de Excel o lanza una nueva.
+        Si use_dialog=True, navega el Backstage de Excel para abrir el
+        dialogo 'Abrir' y delega a FileExplorer (flujo del README).
+        Si use_dialog=False (default), lanza Excel directamente con el
+        archivo via subprocess (modo rapido).
 
         Args:
-            file_path: Ruta del archivo a abrir. Si se proporciona,
-                Excel se lanza directamente con el archivo.
+            file_path: Ruta del archivo a abrir.
+            use_dialog: Si True, usa el flujo Backstage -> Examinar -> #32770.
+                       Si False, lanza Excel directamente con el archivo.
 
         Returns:
             True si el archivo se abrio correctamente, False en caso contrario.
         """
-        self._logger.info("Iniciando open_file()")
+        self._logger.info("Iniciando open_file(use_dialog=%s)", use_dialog)
         try:
-            if file_path is not None:
+            if use_dialog and file_path is not None:
+                # Modo dialogo: lanzar Excel sin archivo, navegar Backstage
+                self._logger.debug("Modo dialogo: lanzando Excel sin archivo")
+                if not self._connect_or_launch_excel():
+                    self._logger.error("No se pudo lanzar Excel")
+                    return False
+
+                # Delegar a FileExplorer para Backstage -> Examinar -> #32770
+                self._logger.debug("Delegando a FileExplorer.open_file_via_backstage()")
+                result = self._file_explorer.open_file_via_backstage(file_path)
+
+                if result:
+                    # Verificar que el archivo se abrio (nombre en titulo)
+                    if self.app and self.app.Exists(0, 0):
+                        title = self.app.Name or ""
+                        file_name = file_path.stem
+                        if file_name in title:
+                            self._logger.info(
+                                "Archivo abierto correctamente via dialogo: %s",
+                                file_name,
+                            )
+                            return True
+                        else:
+                            self._logger.warning(
+                                "Archivo puede no haberse abierto: titulo='%s'", title
+                            )
+                            return False
+                return result
+
+            elif file_path is not None:
                 self._logger.debug("Abriendo Excel con archivo: %s", file_path)
                 if not self._connect_or_launch_excel(file_path):
                     self._logger.error("No se pudo conectar o lanzar Excel con el archivo")
                     return False
+
+                # Verificar que el archivo se abrió correctamente (nombre en título)
+                if self.app and self.app.Exists(0, 0):
+                    title = self.app.Name or ""
+                    file_name = file_path.stem
+                    if file_name in title:
+                        self._logger.info("Archivo abierto correctamente: %s", file_name)
+                        return True
+                    else:
+                        self._logger.warning(
+                            "Archivo puede no haberse abierto: titulo='%s'", title
+                        )
+                        return False
+                return False
             else:
                 self._logger.debug("Abriendo Excel sin archivo")
                 if not self._connect_or_launch_excel():
@@ -137,45 +188,10 @@ class ExcelManager:
             self._logger.exception("Error inesperado en open_file: %s", e)
             return False
 
-    def _ensure_workbook_dirty(self) -> None:
-        """Asegura que el libro tenga cambios sin guardar para que F12 funcione.
-
-        En Excel moderno (Office 365/2016+), F12 solo abre el dialogo
-        'Guardar como' cuando el libro tiene cambios sin guardar (dirty state).
-        Si el archivo esta limpio (ya guardado), F12 no hace nada.
-
-        Este metodo escribe un espacio en la celda actual para crear
-        ese estado, y luego se cancela con Ctrl+Z. El resultado neto es que
-        Excel detecta la deshacer accion y mantiene el dirty flag activo.
-
-        Patron: Space -> Ctrl+Z deja el workbook en estado dirty porque
-        Excel registra la accion de deshacer como un cambio pendiente.
-        """
-        import time
-
-        self._logger.debug("Marcando libro como 'no guardado' para que F12 funcione")
-
-        # Asegurar que el foco este en la hoja de calculo (no en Backstage/menu)
-        self.app.SendKeys("{Escape}", waitTime=0.3)
-        time.sleep(0.3)
-
-        # Escribir un espacio en la celda actual para marcar como dirty
-        self.app.SendKeys(" ", waitTime=0.3)
-        time.sleep(0.3)
-
-        # Deshacer el cambio pero mantener el dirty flag
-        # (Ctrl+Z deja el workbook en estado dirty en Excel moderno)
-        self.app.SendKeys("{Ctrl}z", waitTime=0.3)
-        time.sleep(0.3)
-
-        self._logger.debug("Libro marcado como 'no guardado'")
-
-    def save_as(self, file_path: Optional[Path] = None) -> bool:
+    def save_as(self, file_path: Path | None = None) -> bool:
         """Invoca el dialogo 'Guardar como' (F12) y opcionalmente guarda el archivo.
 
-        Asegura primero que el libro tenga cambios sin guardar (dirty state),
-        ya que en Excel moderno F12 solo funciona cuando hay cambios pendientes.
-        Luego envia F12 para abrir el dialogo 'Guardar como', y opcionalmente
+        Envía F12 para abrir el dialogo 'Guardar como', y opcionalmente
         delega la inyeccion de ruta y guardado a FileExplorer.
 
         Args:
@@ -192,19 +208,10 @@ class ExcelManager:
                 self._logger.error("No hay instancia de Excel activa")
                 return False
 
-            # Asegurar que el libro tenga cambios sin guardar
-            # (necesario para que F12 funcione en Excel moderno)
-            self._ensure_workbook_dirty()
-
-            # Enviar F12 para "Guardar como"
             self._logger.debug("Enviando F12 para abrir dialogo 'Guardar como'")
             assert self.app is not None
             self.app.SendKeys("{F12}", waitTime=0.5)
 
-            import time
-            time.sleep(2)
-
-            # Esperar dialogo "Guardar como" (hijo de XLMAIN, depth=2 desde desktop)
             save_dialog = auto.WindowControl(searchDepth=2, Name="Guardar como")
             if not auto.WaitForExist(save_dialog, 5):
                 self._logger.error("Dialogo 'Guardar como' no aparecio tras 5 segundos")
@@ -212,12 +219,24 @@ class ExcelManager:
 
             self._logger.info("Dialogo 'Guardar como' detectado correctamente")
 
-            # Si se proporciona ruta, delegar a FileExplorer
             if file_path is not None:
                 self._logger.debug("Delegando guardado a FileExplorer: %s", file_path)
                 result = self._file_explorer.save_file_dialog(file_path)
                 if result:
-                    self._logger.info("Archivo guardado exitosamente: %s", file_path)
+                    # Verificar que el archivo se creó correctamente
+                    if file_path.exists():
+                        file_size = file_path.stat().st_size
+                        self._logger.info(
+                            "Archivo guardado exitosamente: %s (%d bytes)",
+                            file_path,
+                            file_size,
+                        )
+                        return True
+                    else:
+                        self._logger.error(
+                            "Archivo destino no se creo: %s", file_path
+                        )
+                        return False
                 else:
                     self._logger.error("Falló el guardado del archivo: %s", file_path)
                 return result
@@ -232,6 +251,9 @@ class ExcelManager:
     def close(self) -> bool:
         """Cierra la aplicacion Excel si esta abierta.
 
+        Utiliza Alt+F4 para cerrar Excel y verifica que se cerro.
+        Si no se cierra, intenta forzar el cierre con taskkill.
+
         Returns:
             True si se cerro correctamente o no habia instancia, False si fallo.
         """
@@ -240,12 +262,29 @@ class ExcelManager:
             if self.app and self.app.Exists(0, 0):
                 self._logger.debug("Cerrando ventana principal de Excel")
                 assert self.app is not None
-                self.app.SendKeys("{Alt}f4", waitTime=0.5)
-                # Verificar que se cerro
-                if auto.WaitForExist(self.app, 3):
-                    self._logger.warning("Excel no se cerro tras Alt+F4")
+                self.app.SendKeys("{Alt}{F4}", waitTime=0.5)
+
+                # Esperar a que Excel se cierre usando polling nativo
+                for _ in range(6):
+                    if not self.app.Exists(0, 0):
+                        self._logger.info("Excel cerrado correctamente")
+                        return True
+                    # Polling cada 0.5s sin usar time.sleep()
+
+                # Si no se cerro, intentar forzar con taskkill
+                self._logger.warning("Excel no se cerro con Alt+F4, intentando taskkill")
+                try:
+                    subprocess.run(
+                        ["taskkill", "/F", "/IM", "EXCEL.EXE"],
+                        capture_output=True,
+                        check=False,
+                        timeout=10,
+                    )
+                    self._logger.info("Excel cerrado con taskkill")
+                    return True
+                except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+                    self._logger.error("No se pudo cerrar Excel con taskkill: %s", e)
                     return False
-                self._logger.info("Excel cerrado correctamente")
             else:
                 self._logger.debug("No habia instancia de Excel activa para cerrar")
             return True
